@@ -1,0 +1,4 @@
+exp,cv_f1,test_f1
+per window (official),0.9441,0.8497
+file-level mean (side),0.9615,0.8512
+seeds 0-4 test F1 mean+-std,,0.8545 +- 0.0047

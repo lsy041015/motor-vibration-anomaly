@@ -1,0 +1,269 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>IC-PBL 모터 판정 뷰어</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/plotly.js/2.27.0/plotly.min.js"></script>
+<style>
+  :root { --bg:#f7f8fa; --card:#fff; --text:#1d2330; --muted:#6b7280; --line:#e5e7eb; --ok:#2563eb; --bad:#dc2626; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:"Malgun Gothic","Segoe UI",sans-serif; background:var(--bg); color:var(--text); }
+  header { padding:14px 20px; background:var(--card); border-bottom:1px solid var(--line); display:flex; gap:24px; align-items:baseline; flex-wrap:wrap; }
+  header h1 { font-size:18px; margin:0; }
+  nav { display:flex; gap:4px; padding:10px 16px 0; }
+  nav button { border:1px solid var(--line); border-bottom:none; background:#eef0f4; padding:8px 16px; border-radius:8px 8px 0 0; cursor:pointer; font:inherit; font-size:14px; }
+  nav button.on { background:var(--card); font-weight:bold; }
+  .tab { display:none; padding:16px; } .tab.on { display:block; }
+  .stat { font-size:14px; color:var(--muted); } .stat b { color:var(--text); font-size:16px; }
+  .grid2 { display:grid; grid-template-columns:260px 1fr; gap:16px; }
+  .grid3 { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+  @media (max-width:900px) { .grid2, .grid3 { grid-template-columns:1fr; } }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:12px; margin-bottom:16px; min-width:0; }
+  .grid3 > div { min-width:0; }
+  .tiles { display:flex; flex-wrap:wrap; gap:10px; }
+  .tile { border:1px solid var(--line); border-radius:8px; padding:8px 12px; min-width:110px; }
+  .tile .v { font-size:22px; font-weight:bold; font-variant-numeric:tabular-nums; } .tile .k { font-size:12px; color:var(--muted); }
+  table { border-collapse:collapse; font-size:13px; width:100%; }
+  th, td { border:1px solid var(--line); padding:5px 8px; text-align:center; font-variant-numeric:tabular-nums; }
+  th { background:#f3f4f6; font-weight:normal; color:var(--muted); }
+  tr.final td { background:#ecfdf5; font-weight:bold; }
+  .cm td { font-size:18px; width:33%; } .cm .okc { background:#dcfce7; } .cm .errc { background:#fee2e2; }
+  .motor { display:flex; justify-content:space-between; padding:6px 8px; border-radius:6px; cursor:pointer; font-size:14px; }
+  .motor:hover { background:#eef2ff; } .motor.sel { background:#dbe4ff; font-weight:bold; }
+  .acc { font-variant-numeric:tabular-nums; } .lo { color:var(--bad); }
+  h3 { margin:6px 0 8px; font-size:14px; color:var(--muted); font-weight:normal; }
+  .note { font-size:12px; color:var(--muted); margin-top:6px; }
+  .plot { width:100%; height:300px; }
+  .row { display:flex; gap:12px; align-items:center; flex-wrap:wrap; font-size:14px; margin-bottom:6px; }
+  input[type=range] { width:min(320px, 100%); }
+  .legend span { display:inline-block; width:10px; height:10px; border-radius:2px; margin:0 4px 0 10px; }
+  .steps { display:flex; flex-wrap:wrap; gap:8px; align-items:stretch; }
+  .step { flex:1 1 150px; border:1px solid var(--line); border-radius:8px; padding:8px 10px; font-size:13px; }
+  .step .n { font-size:11px; color:var(--muted); } .step .v { font-size:18px; font-weight:bold; margin-top:2px; }
+  .step .v.small { font-size:13px; }
+  .verdict-bad { background:#fee2e2; border-color:#fca5a5; } .verdict-ok { background:#dbeafe; border-color:#93c5fd; }
+  .wrong { color:var(--bad); font-weight:bold; }
+</style>
+</head>
+<body>
+<header>
+  <h1>IC-PBL 모터 정상/불량 판정 뷰어 (Test 모터 1~10)</h1>
+  <div class="stat">모델: <span id="model"></span></div>
+</header>
+<nav><button class="on" data-tab="perf">① 성능</button><button data-tab="infer">② 분류·추론 과정</button></nav>
+
+<section class="tab on" id="perf">
+  <div class="card">
+    <div class="row"><b>Test 성능</b> <span class="stat">(윈도우 단위, 임계값 <b id="thrv"></b>)</span></div>
+    <div class="tiles" id="tiles"></div>
+    <div class="row" style="margin-top:10px">임계값 실험 <input type="range" id="thr" min="0.5" max="1" step="0.002">
+      <button id="reset">CV로 정한 값 복원</button></div>
+    <div class="note">임계값은 Training CV로 정한 값임. 슬라이더는 Test에서의 변화를 보여주는 참고용이고, 모델 선택에는 쓰지 않음.</div>
+  </div>
+  <div class="grid3">
+    <div class="card">
+      <h3>혼동행렬 (행 = 실제, 열 = 판정)</h3>
+      <table class="cm"><tr><th></th><th>정상 판정</th><th>불량 판정</th></tr>
+        <tr><th>실제 정상</th><td class="okc" id="cTN"></td><td class="errc" id="cFP"></td></tr>
+        <tr><th>실제 불량</th><td class="errc" id="cFN"></td><td class="okc" id="cTP"></td></tr></table>
+      <h3 style="margin-top:14px">모터별 정답 비율 (80% 미만 = 진한 빨강)</h3>
+      <div id="motorbar" class="plot" style="height:260px"></div>
+    </div>
+    <div class="card">
+      <h3>이상점수 분포 (점선 = 임계값, 오른쪽이면 불량 판정)</h3>
+      <div id="hist" class="plot" style="height:430px"></div>
+    </div>
+  </div>
+  <div class="card">
+    <h3>후보 모델 비교 (Training CV 기준 정렬, 초록 행 = 선택된 모델). Test F1은 기록만 함.</h3>
+    <div style="overflow-x:auto"><table id="cmp"></table></div>
+    <div class="note">선택 규칙: cv F1 1위와 0.002 이내인 후보는 spd F1(회전속도 그룹 제외 CV)로 순위를 정함. cv = 모터 단위 5-fold, flt = 불량 유형 제외 CV.</div>
+  </div>
+</section>
+
+<section class="tab" id="infer">
+  <div class="grid2">
+    <div class="card">
+      <h3>모터 (정답 비율)</h3>
+      <div id="motors"></div>
+    </div>
+    <div>
+      <div class="card">
+        <div class="row"><b id="mtitle"></b>
+          <span class="legend"><span style="background:var(--ok)"></span>정상 판정<span style="background:var(--bad)"></span>불량 판정</span></div>
+        <h3>모터의 모든 윈도우 이상점수 (점 클릭 = 그 윈도우 선택, 점선 = 임계값)</h3>
+        <div id="timeline" class="plot" style="height:240px"></div>
+      </div>
+      <div class="card">
+        <div class="row">파일 <input type="range" id="file" min="0" value="0"> <span id="fileinfo"></span></div>
+        <h3>추론 과정 (선택 윈도우)</h3>
+        <div class="steps" id="steps"></div>
+        <div class="grid3" style="margin-top:12px">
+          <div><h3>1. 파형 (256 샘플 윈도우, 클릭 = 윈도우 선택)</h3><div id="wave" class="plot" style="height:260px"></div></div>
+          <div><h3>2. FFT (초록 점선 = f0 배수, 빨간 띠 = 불량 대역)</h3><div id="fft" class="plot" style="height:260px"></div></div>
+        </div>
+        <div class="grid3">
+          <div><h3>3. 특징값: Training 정상 평균에서 떨어진 정도 (z, |z|&gt;3 빨강)</h3><div id="feat" class="plot" style="height:420px"></div></div>
+          <div><h3>4. 검출기별 이상순위 → 평균 → 임계값 비교</h3><div id="dets" class="plot" style="height:420px"></div>
+            <div class="note">이상순위 = Training 정상 윈도우 중 이 윈도우보다 덜 이상한 비율 (0~1). 세 검출기의 평균이 이상점수임.</div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<script>
+const D = /*DATA*/null;
+const S = D.summary, T0 = S.threshold;
+let T = T0, cur = 0, win = 0;
+document.getElementById('model').textContent = S.model;
+const lay = (o) => Object.assign({margin: {l: 50, r: 10, t: 10, b: 40}, paper_bgcolor: 'rgba(0,0,0,0)', plot_bgcolor: '#fff'}, o);
+const cfg = {displayModeBar: false, responsive: true};
+const pct = v => (v * 100).toFixed(1) + '%';
+
+document.querySelectorAll('nav button').forEach(b => b.onclick = () => {
+  document.querySelectorAll('nav button').forEach(x => x.classList.toggle('on', x === b));
+  document.querySelectorAll('.tab').forEach(t => t.classList.toggle('on', t.id === b.dataset.tab));
+  document.querySelectorAll('.tab.on .js-plotly-plot').forEach(p => Plotly.Plots.resize(p));
+});
+
+// ---------- performance ----------
+const allS = [], allY = [];
+for (const m of D.motors) for (const f of m.files) for (const s of f.score) { allS.push(s); allY.push(m.label); }
+function confusion(t) {
+  let tn = 0, fp = 0, fn = 0, tp = 0;
+  allS.forEach((s, i) => { const p = s >= t; if (allY[i]) p ? tp++ : fn++; else p ? fp++ : tn++; });
+  return {tn, fp, fn, tp};
+}
+function acc(m) {
+  let ok = 0, n = 0;
+  for (const f of m.files) for (const s of f.score) { n++; if ((s >= T ? 1 : 0) === m.label) ok++; }
+  return ok / n;
+}
+function renderPerf() {
+  const c = confusion(T), prec = c.tp / (c.tp + c.fp), rec = c.tp / (c.tp + c.fn), f1 = 2 * prec * rec / (prec + rec);
+  document.getElementById('thrv').textContent = T.toFixed(3) + (Math.abs(T - T0) < 1e-9 ? ' (CV로 정한 값)' : ' (실험 중)');
+  const tiles = [['Test F1', f1.toFixed(4)], ['정밀도 (불량 판정 중 실제 불량)', pct(prec)], ['재현율 (불량 검출률)', pct(rec)],
+    ['정상 정답률', pct(c.tn / (c.tn + c.fp))], ['정확도', pct((c.tn + c.tp) / allS.length)],
+    ['CV F1 (Training)', S.cv_f1.toFixed(4)], ['spd F1', S.spd_f1.toFixed(4)], ['flt F1', S.flt_f1.toFixed(4)]];
+  document.getElementById('tiles').innerHTML = tiles.map(([k, v]) => `<div class="tile"><div class="v">${v}</div><div class="k">${k}</div></div>`).join('');
+  for (const k of ['tn', 'fp', 'fn', 'tp']) document.getElementById('c' + k.toUpperCase()).textContent = c[k];
+  const names = D.motors.map(m => m.name), accs = D.motors.map(acc);
+  Plotly.react('motorbar', [{x: names, y: accs, type: 'bar', marker: {color: accs.map((a, i) => a < 0.8 ? '#dc2626' : D.motors[i].label ? '#f87171' : '#60a5fa')},
+    text: accs.map(a => (a * 100).toFixed(0)), textposition: 'outside'}],
+    lay({yaxis: {range: [0, 1.15], tickformat: '.0%'}, xaxis: {tickangle: -45}, margin: {l: 45, r: 10, t: 10, b: 70}}), cfg);
+  Plotly.react('hist', [
+    {x: allS.filter((_, i) => !allY[i]), type: 'histogram', name: '실제 정상', opacity: 0.6, marker: {color: '#2563eb'}, xbins: {start: 0, end: 1.001, size: 0.01}},
+    {x: allS.filter((_, i) => allY[i]), type: 'histogram', name: '실제 불량', opacity: 0.6, marker: {color: '#dc2626'}, xbins: {start: 0, end: 1.001, size: 0.01}}],
+    lay({barmode: 'overlay', xaxis: {title: '이상점수 (검출기 순위 평균)'}, yaxis: {title: '윈도우 수 (log)', type: 'log'}, legend: {orientation: 'h', y: 1.08},
+      shapes: [{type: 'line', yref: 'paper', x0: T, x1: T, y0: 0, y1: 1, line: {dash: 'dot', color: '#111', width: 2}}]}), cfg);
+  renderMotorList();
+  if (document.getElementById('timeline').data) selectMotor(cur, true);
+}
+const thr = document.getElementById('thr');
+thr.value = T0;
+thr.oninput = () => { T = +thr.value; renderPerf(); };
+document.getElementById('reset').onclick = () => { T = T0; thr.value = T0; renderPerf(); };
+
+const cmpCols = [['overlap', '겹침%'], ['features', '특징'], ['ensemble', '앙상블'], ['t', '임계값'], ['cv_f1', 'cv F1'], ['spd_f1', 'spd F1'],
+  ['flt_f1', 'flt F1'], ['test_f1', 'Test F1'], ['fp', 'FP'], ['fn', 'FN']];
+document.getElementById('cmp').innerHTML = '<tr>' + cmpCols.map(c => `<th>${c[1]}</th>`).join('') + '</tr>' +
+  D.compare.map((r, i) => `<tr class="${i === 0 ? 'final' : ''}">` + cmpCols.map(([k]) => `<td>${r[k]}</td>`).join('') + '</tr>').join('');
+
+// ---------- inference ----------
+function decode(b64) {
+  const bin = atob(b64), n = bin.length / 2, out = new Float32Array(n);
+  for (let i = 0; i < n; i++) { let v = bin.charCodeAt(2*i) | (bin.charCodeAt(2*i+1) << 8); if (v > 32767) v -= 65536; out[i] = v / 32767 * 2; }
+  return out;
+}
+function fftMag(seg) {  // log1p(|rfft| / 256 * 100), same as features.fft_features
+  const N = seg.length, mean = seg.reduce((a, b) => a + b, 0) / N, out = [];
+  for (let k = 0; k <= N / 2; k++) {
+    let re = 0, im = 0;
+    for (let n = 0; n < N; n++) { const a = -2 * Math.PI * k * n / N; re += (seg[n] - mean) * Math.cos(a); im += (seg[n] - mean) * Math.sin(a); }
+    out.push(Math.log1p(Math.hypot(re, im) / N * 100));
+  }
+  return out;
+}
+const list = document.getElementById('motors');
+function renderMotorList() {
+  list.innerHTML = '';
+  D.motors.forEach((m, i) => {
+    const a = acc(m), d = document.createElement('div');
+    d.className = 'motor' + (i === cur ? ' sel' : '');
+    d.innerHTML = `<span>${m.name}</span><span class="acc ${a < 0.8 ? 'lo' : ''}">${(a * 100).toFixed(0)}%</span>`;
+    d.onclick = () => selectMotor(i); list.appendChild(d);
+  });
+}
+// flat window index within the selected motor -> [file, window]
+function locate(m, k) { for (let fi = 0; fi < m.files.length; fi++) { const n = m.files[fi].score.length; if (k < n) return [fi, k]; k -= n; } return [0, 0]; }
+
+function selectMotor(i, keep) {
+  if (!keep) { cur = i; win = 0; document.getElementById('file').value = 0; }
+  [...list.children].forEach((d, j) => d.classList.toggle('sel', j === cur));
+  const m = D.motors[cur];
+  document.getElementById('mtitle').textContent = `${m.name} (정답: ${m.label ? '불량' : '정상'}, 파일 ${m.files.length}개, 정답 비율 ${(acc(m) * 100).toFixed(0)}%)`;
+  const sc = m.files.flatMap(f => f.score);
+  Plotly.react('timeline', [{y: sc, mode: 'markers', marker: {size: 5, color: sc.map(s => s >= T ? '#dc2626' : '#2563eb')}}],
+    lay({yaxis: {range: [0, 1.02], title: '이상점수'}, xaxis: {title: '윈도우 순서'}, showlegend: false,
+         shapes: [{type: 'line', xref: 'paper', x0: 0, x1: 1, y0: T, y1: T, line: {dash: 'dot', color: '#111'}}]}), cfg);
+  const tl = document.getElementById('timeline');
+  tl.removeAllListeners('plotly_click');
+  tl.on('plotly_click', e => { const [fi, w] = locate(D.motors[cur], e.points[0].pointIndex); document.getElementById('file').value = fi; win = w; drawFile(); });
+  document.getElementById('file').max = m.files.length - 1;
+  drawFile();
+}
+function drawFile() {
+  const m = D.motors[cur], fi = +document.getElementById('file').value, f = m.files[fi], sig = decode(f.sig);
+  document.getElementById('fileinfo').textContent = `${fi + 1} / ${m.files.length} · 윈도우 ${win + 1} / ${f.score.length}`;
+  const t = Array.from(sig, (_, i) => i / S.fs);
+  const shapes = f.score.map((s, w) => ({type: 'rect', xref: 'x', yref: 'paper', x0: w * S.step / S.fs, x1: (w * S.step + 256) / S.fs, y0: 0, y1: 1,
+    fillcolor: s >= T ? '#fecaca' : '#dbeafe', opacity: w === win ? 0.9 : 0.45, line: {width: w === win ? 2 : 0, color: '#111'}}));
+  Plotly.react('wave', [{x: t, y: Array.from(sig), mode: 'lines', line: {width: 1, color: '#374151'}}],
+    lay({shapes, xaxis: {title: '시간 [s]'}, yaxis: {title: '진폭 [g]'}, showlegend: false}), cfg);
+  const wv = document.getElementById('wave');
+  wv.removeAllListeners('plotly_click');
+  wv.on('plotly_click', e => { win = Math.min(f.score.length - 1, Math.floor(e.points[0].x * S.fs / S.step)); drawFile(); });
+
+  const seg = sig.slice(win * S.step, win * S.step + 256), f0 = f.f0[win];
+  const fshapes = D.fault_bands.map(([a, b]) => ({type: 'rect', xref: 'x', yref: 'paper', x0: a, x1: b, y0: 0, y1: 1, fillcolor: '#fecaca', opacity: 0.35, line: {width: 0}}));
+  for (let k = 1; k * f0 < S.fs / 2; k++) fshapes.push({type: 'line', xref: 'x', yref: 'paper', x0: k * f0, x1: k * f0, y0: 0, y1: 1, line: {dash: 'dot', color: '#16a34a', width: 1}});
+  Plotly.react('fft', [
+    {x: D.freqs, y: D.normal_spec, name: 'Training 정상 평균', line: {color: '#2563eb', dash: 'dot'}},
+    {x: D.freqs, y: D.abnormal_spec, name: 'Training 불량 평균', line: {color: '#dc2626', dash: 'dot'}},
+    {x: D.freqs, y: fftMag(seg), name: '선택 윈도우', line: {color: '#111'}}],
+    lay({shapes: fshapes, xaxis: {title: `주파수 [Hz] (f0 = ${f0} Hz)`}, yaxis: {title: 'log 크기'}, legend: {orientation: 'h', y: 1.15}}), cfg);
+
+  const z = f.z[win], ranks = f.ranks[win], s = f.score[win], pred = s >= T ? 1 : 0;
+  Plotly.react('feat', [{y: D.feat_names, x: z, type: 'bar', orientation: 'h',
+    marker: {color: z.map(v => Math.abs(v) > 3 ? '#dc2626' : '#9ca3af')}, text: z.map(v => v.toFixed(1)), textposition: 'outside'}],
+    lay({yaxis: {autorange: 'reversed', automargin: true}, xaxis: {title: 'z (0 = Training 정상 평균)', zeroline: true},
+      margin: {l: 10, r: 30, t: 10, b: 40}, shapes: [-3, 3].map(v => ({type: 'line', yref: 'paper', x0: v, x1: v, y0: 0, y1: 1, line: {dash: 'dot', color: '#dc2626', width: 1}}))}), cfg);
+  const dn = D.detectors.concat(['평균 = 이상점수']), dv = ranks.concat([s]);
+  Plotly.react('dets', [{x: dn, y: dv, type: 'bar', text: dv.map(v => v.toFixed(3)), textposition: 'outside',
+    marker: {color: dv.map((v, i) => i === dv.length - 1 ? (pred ? '#dc2626' : '#2563eb') : '#9ca3af')}}],
+    lay({yaxis: {range: [0, 1.12], title: '이상순위'}, showlegend: false,
+      shapes: [{type: 'line', xref: 'paper', x0: 0, x1: 1, y0: T, y1: T, line: {dash: 'dot', color: '#111', width: 2}}],
+      annotations: [{xref: 'paper', x: 0, y: T, text: `임계값 ${T.toFixed(3)}`, showarrow: false, yshift: 10, xanchor: 'left'}]}), cfg);
+
+  const top = z.map((v, i) => [Math.abs(v), D.feat_names[i], v]).sort((a, b) => b[0] - a[0]).slice(0, 3);
+  const right = pred === m.label;
+  const steps = [
+    {n: '① 입력', v: `256 샘플 (${(256 / S.fs).toFixed(2)} s)`},
+    {n: '② 회전주파수 f0 추정', v: `${f0} Hz`},
+    {n: `③ 특징 ${D.feat_names.length}개 (z 큰 순 3개)`, v: top.map(t => `${t[1]} ${t[2] > 0 ? '+' : ''}${t[2].toFixed(1)}`).join('<br>'), small: true},
+    {n: '④ 검출기별 이상순위', v: D.detectors.map((d, i) => `${d} ${ranks[i].toFixed(3)}`).join('<br>'), small: true},
+    {n: '⑤ 이상점수 (평균) vs 임계값', v: `${s.toFixed(3)} ${s >= T ? '≥' : '<'} ${T.toFixed(3)}`},
+    {n: '⑥ 판정', v: `${pred ? '불량' : '정상'} <span class="${right ? '' : 'wrong'}">${right ? '(정답)' : '(오답: 실제 ' + (m.label ? '불량' : '정상') + ')'}</span>`,
+     cls: pred ? 'verdict-bad' : 'verdict-ok'}];
+  document.getElementById('steps').innerHTML = steps.map(st =>
+    `<div class="step ${st.cls || ''}"><div class="n">${st.n}</div><div class="v ${st.small ? 'small' : ''}">${st.v}</div></div>`).join('');
+}
+document.getElementById('file').oninput = () => { win = 0; drawFile(); };
+
+renderPerf();
+selectMotor(D.motors.findIndex(m => m.label === 1));
+</script>
+</body>
+</html>

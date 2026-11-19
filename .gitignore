@@ -1,0 +1,8 @@
+data/
+cache/
+eda/
+code_bak_1118/
+*.zip
+*.hwp
+viewer_stage3.html
+__pycache__/
