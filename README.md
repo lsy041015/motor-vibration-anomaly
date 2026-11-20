@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/motor-vibration-anomaly-banner.png" alt="모터 진동 이상 탐지 — 속도 인식 특징과 이상 탐지 앙상블 (IC-PBL)" width="100%">
+</p>
+
 # 모터 진동 이상 탐지 (IC-PBL, 기계학습론)
 
 모터 진동 신호(±2g 가속도, 약 401.9 Hz, 파일당 1024 샘플)로 정상과 불량 모터를 분류하는 프로젝트입니다.
