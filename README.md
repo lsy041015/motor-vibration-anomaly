@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/motor-vibration-anomaly-banner.png" alt="모터 진동 이상 탐지 — 속도 인식 특징과 이상 탐지 앙상블 (IC-PBL)" width="100%">
+  <img src="assets/motor-vibration-anomaly-banner.png" alt="모터 진동 이상 탐지 — 속도 인식 특징과 이상 탐지 앙상블 (IC-PBL)" width="560">
 </p>
 
 # 모터 진동 이상 탐지 (IC-PBL, 기계학습론)
